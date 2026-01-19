@@ -302,7 +302,7 @@ function tryRedirect() {
     shakeTime = 0.4;
     shakeIntensity = innerWidth < 768 ? 0.08 : 0.18;
     flash.classList.add("active");
-    setTimeout(() => (location.href = "/portal.html"), 350);
+    setTimeout(() => (location.href = "/portal"), 350);
   }
 }
 
