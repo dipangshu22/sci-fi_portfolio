@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Portal Experience</title>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: Arial, sans-serif;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    /* ================= Overlay ================= */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: none;
+      z-index: 100;
+    }
+
+    /* ================= POPUP (FIXED & RESPONSIVE) ================= */
+    #popup {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 101;
+    }
+
+    .popup-card {
+      background: rgba(255,255,255,0.12);
+      padding: 26px;
+      width: min(92vw, 360px);
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,.3);
+      backdrop-filter: blur(15px);
+      box-shadow: 0 10px 30px rgba(0,0,0,.4);
+      color: #fff;
+      text-align: center;
+
+      transform: scale(0.7);
+      opacity: 0;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+
+    #popup.active .popup-card {
+      transform: scale(1);
+      opacity: 1;
+    }
+
+    .popup-buttons {
+      margin-top: 20px;
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    #enterBtn {
+      background: #007bff;
+      color: #fff;
+    }
+
+    #exitBtn {
+      background: #ff3366;
+      color: #fff;
+    }
+
+    /* ================= Welcome ================= */
+    #welcomeModal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      color: white;
+      z-index: 1000;
+      transition: all 0.5s ease;
+    }
+
+    /* ================= Blur Layer ================= */
+    #blurLayer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      backdrop-filter: blur(0px);
+      -webkit-backdrop-filter: blur(0px);
+      z-index: 900;
+    }
+
+    /* ================= Flash ================= */
+    #flash {
+      position: fixed;
+      inset: 0;
+      background: white;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 2000;
+      transition: opacity 0.25s ease;
+    }
+
+    #flash.active {
+      opacity: 1;
+    }
+  </style>
+</head>
+
+<body>
+  
+
+  <!-- ================= Welcome ================= -->
+  <div id="welcomeModal">
+    <h1 style="font-size:40px;margin-bottom:20px;">Welcome</h1>
+    <button onclick="closeWelcomeModal()">Enter</button>
+  </div>
+
+  <!-- ================= Canvas ================= -->
+  <canvas id="webgl"></canvas>
+
+  <!-- ================= Layers ================= -->
+  <div id="overlay"></div>
+  <div id="blurLayer"></div>
+  <div id="flash"></div>
+
+  <!-- ================= Popup ================= -->
+  <div id="popup">
+    <div class="popup-card">
+      <h2>Enter the Portal?</h2>
+      <p>Do you want to continue?</p>
+
+      <div class="popup-buttons">
+        <button id="enterBtn" onclick="enterPortal()">Enter Portal</button>
+        <button id="exitBtn" onclick="closeModal()">Exit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= Three.js ================= -->
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
