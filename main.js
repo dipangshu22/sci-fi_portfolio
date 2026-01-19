@@ -1,9 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+
 /* =========================================================
    DOM
 ========================================================= */
@@ -12,6 +10,24 @@ const blurLayer = document.getElementById("blurLayer");
 const flash = document.getElementById("flash");
 const overlay = document.getElementById("overlay");
 const popup = document.getElementById("popup");
+
+const loaderUI = document.getElementById("loader");
+const loaderBar = document.getElementById("loader-progress");
+const loaderText = document.getElementById("loader-text");
+
+/* =========================================================
+   LOADER UI
+========================================================= */
+function updateLoader(p) {
+  const percent = Math.floor(p * 100);
+  loaderBar.style.width = percent + "%";
+  loaderText.textContent = `Loading ${percent}%`;
+}
+
+function hideLoader() {
+  loaderUI.style.opacity = "0";
+  setTimeout(() => loaderUI.remove(), 500);
+}
 
 /* =========================================================
    WELCOME
@@ -24,11 +40,15 @@ window.closeWelcomeModal = function () {
 };
 
 /* =========================================================
-   BLUR HELPERS
+   BLUR
 ========================================================= */
 function setBlur(v) {
+  if (v === 0) {
+    blurLayer.style.backdropFilter = "none";
+    blurLayer.style.webkitBackdropFilter = "none";
+    return;
+  }
   blurLayer.style.backdropFilter = `blur(${v}px)`;
-  blurLayer.style.webkitBackdropFilter = `blur(${v}px)`;
 }
 
 function animateBlur(from, to, duration) {
@@ -42,68 +62,30 @@ function animateBlur(from, to, duration) {
 }
 
 /* =========================================================
-   SCENE
+   SCENE & CAMERA
 ========================================================= */
 const scene = new THREE.Scene();
 
-/* =========================================================
-   CAMERA RIG
-========================================================= */
 const cameraRig = new THREE.Group();
 scene.add(cameraRig);
 
-const camera = new THREE.PerspectiveCamera(
-  70,
-  innerWidth / innerHeight,
-  0.1,
-  1000
-);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 1000);
 cameraRig.add(camera);
 
-/* =========================================================
-   GAME CAMERA
-========================================================= */
 const basePos = new THREE.Vector3();
-
-function setGameCamera() {
-  const isMobile = innerWidth < 768;
-
-  if (isMobile) {
-    cameraRig.position.set(0, 1.6, 5.2);
-  } else {
-    cameraRig.position.set(0, 1.8, 6.8);
-  }
-
-  controls.target.set(0, 0.8, 0);
-  controls.update();
-  basePos.copy(cameraRig.position);
-}
 
 /* =========================================================
    RENDERER
 ========================================================= */
 const renderer = new THREE.WebGLRenderer({
   canvas: webgl,
-  antialias: true,
-  alpha: true
+  alpha: true,
+  antialias: false,
+  powerPreference: "high-performance"
 });
+
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-
-/* =========================================================
-   POST PROCESSING
-========================================================= */
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-
-composer.addPass(
-  new UnrealBloomPass(
-    new THREE.Vector2(innerWidth, innerHeight),
-    innerWidth < 768 ? 0.6 : 1.1,
-    0.4,
-    0.85
-  )
-);
+renderer.setPixelRatio(Math.min(devicePixelRatio, innerWidth < 768 ? 1.2 : 1.5));
 
 /* =========================================================
    CONTROLS
@@ -111,11 +93,10 @@ composer.addPass(
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableZoom = false;
 controls.enablePan = false;
-controls.enableRotate = true;
-controls.minPolarAngle = Math.PI / 3;
-controls.maxPolarAngle = Math.PI / 2.1;
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
+controls.minPolarAngle = Math.PI / 3;
+controls.maxPolarAngle = Math.PI / 2.1;
 
 /* =========================================================
    LIGHTS
@@ -124,78 +105,144 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 scene.add(new THREE.DirectionalLight(0x00aaff, 2));
 
 /* =========================================================
-   AUDIO
+   CAMERA POSITION
+========================================================= */
+function setGameCamera() {
+  if (innerWidth < 768) {
+    cameraRig.position.set(0, 1.6, 5.2);
+  } else {
+    cameraRig.position.set(0, 1.8, 6.8);
+  }
+  controls.target.set(0, 0.8, 0);
+  controls.update();
+  basePos.copy(cameraRig.position);
+}
+
+/* =========================================================
+   POST PROCESSING (LAZY)
+========================================================= */
+let composer, bloomPass;
+
+async function loadPostProcessing() {
+  if (composer) return;
+
+  const [
+    { EffectComposer },
+    { RenderPass },
+    { UnrealBloomPass }
+  ] = await Promise.all([
+    import("three/examples/jsm/postprocessing/EffectComposer.js"),
+    import("three/examples/jsm/postprocessing/RenderPass.js"),
+    import("three/examples/jsm/postprocessing/UnrealBloomPass.js")
+  ]);
+
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+
+  bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(innerWidth, innerHeight),
+    innerWidth < 768 ? 0.6 : 1.1,
+    0.4,
+    0.85
+  );
+
+  composer.addPass(bloomPass);
+}
+
+/* =========================================================
+   AUDIO (LAZY)
 ========================================================= */
 const listener = new THREE.AudioListener();
 camera.add(listener);
 
 const portalSound = new THREE.Audio(listener);
+let audioLoaded = false;
 let soundFinished = false;
 
-new THREE.AudioLoader().load("/assets/portal.mp3", buffer => {
-  portalSound.setBuffer(buffer);
-  portalSound.onEnded = () => {
-    soundFinished = true;
-    tryRedirect();
-  };
-});
+async function loadPortalAudio() {
+  if (audioLoaded) {
+    portalSound.play();
+    return;
+  }
+
+  const audioLoader = new THREE.AudioLoader();
+  audioLoader.load("/assets/portal.mp3", buffer => {
+    portalSound.setBuffer(buffer);
+    portalSound.onEnded = () => {
+      soundFinished = true;
+      tryRedirect();
+    };
+    audioLoaded = true;
+    portalSound.play();
+  });
+}
 
 /* =========================================================
-   ANIMATION
+   MODEL & ANIMATION
 ========================================================= */
 const clock = new THREE.Clock();
 let mixer, portalAction;
 let animationFinished = false;
 let modelReady = false;
-
-/* =========================================================
-   SCREEN SHAKE
-========================================================= */
-let shakeTime = 0;
-let shakeIntensity = 0;
-
-/* =========================================================
-   RAYCASTER
-========================================================= */
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
 let clickableModel = null;
 
-/* =========================================================
-   HELPERS
-========================================================= */
 function normalize(obj, size = 6) {
   const box = new THREE.Box3().setFromObject(obj);
   const max = Math.max(...box.getSize(new THREE.Vector3()).toArray());
   obj.scale.setScalar(size / max);
 }
 
-/* =========================================================
-   LOAD MODEL
-========================================================= */
 const loader = new GLTFLoader();
 
-loader.load("/assets/animated.glb", gltf => {
-  const model = gltf.scene;
-  clickableModel = model;
+loader.load(
+  "/assets/animated.glb",
+  gltf => {
+    const model = gltf.scene;
+    clickableModel = model;
 
-  normalize(model);
-  model.position.set(0, -1.4, 0);
-  scene.add(model);
+    normalize(model);
+    model.position.set(0, -1.4, 0);
+    scene.add(model);
 
-  mixer = new THREE.AnimationMixer(model);
-  portalAction = mixer.clipAction(gltf.animations[0]);
-  portalAction.loop = THREE.LoopOnce;
-  portalAction.clampWhenFinished = true;
-  portalAction.timeScale = 0.5;
+    mixer = new THREE.AnimationMixer(model);
+    portalAction = mixer.clipAction(gltf.animations[0]);
+    portalAction.loop = THREE.LoopOnce;
+    portalAction.clampWhenFinished = true;
+    portalAction.timeScale = 0.5;
 
-  mixer.addEventListener("finished", () => {
-    animationFinished = true;
-    tryRedirect();
-  });
+    mixer.addEventListener("finished", () => {
+      animationFinished = true;
+      tryRedirect();
+    });
 
-  modelReady = true;
-  setGameCamera();
+    modelReady = true;
+    setGameCamera();
+    hideLoader();
+  },
+  xhr => {
+    if (xhr.total) updateLoader(xhr.loaded / xhr.total);
+  }
+);
+
+/* =========================================================
+   RAYCAST CLICK
+========================================================= */
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+renderer.domElement.addEventListener("pointerdown", e => {
+  if (!clickableModel) return;
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.set(
+    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+    -((e.clientY - rect.top) / rect.height) * 2 + 1
+  );
+
+  raycaster.setFromCamera(mouse, camera);
+  if (raycaster.intersectObject(clickableModel, true).length) {
+    openModal();
+  }
 });
 
 /* =========================================================
@@ -218,35 +265,14 @@ window.closeModal = function () {
 };
 
 /* =========================================================
-   CLICK MODEL
+   ENTER PORTAL
 ========================================================= */
-function onPointerDown(e) {
-  if (!clickableModel) return;
+let shakeTime = 0;
+let shakeIntensity = 0;
 
-  const rect = renderer.domElement.getBoundingClientRect();
-  mouse.set(
-    ((e.clientX - rect.left) / rect.width) * 2 - 1,
-    -((e.clientY - rect.top) / rect.height) * 2 + 1
-  );
+window.enterPortal = async function () {
+  if (!modelReady || !portalAction) return;
 
-  raycaster.setFromCamera(mouse, camera);
-  if (raycaster.intersectObject(clickableModel, true).length) {
-    openModal();
-  }
-}
-
-renderer.domElement.addEventListener("pointerdown", onPointerDown);
-
-/* =========================================================
-   ENTER PORTAL  ✅ POPUP HIDES HERE
-========================================================= */
-window.enterPortal = function () {
-  if (!modelReady || !portalAction || !portalSound.buffer) return;
-
-  animationFinished = false;
-  soundFinished = false;
-
-  /* 🔒 HIDE POPUP */
   popup.classList.remove("active");
   setTimeout(() => {
     popup.style.display = "none";
@@ -254,14 +280,16 @@ window.enterPortal = function () {
   }, 200);
 
   controls.enabled = false;
+  animationFinished = false;
+  soundFinished = false;
 
-  /* ▶️ START PORTAL */
+  await loadPostProcessing();
+  await loadPortalAudio();
+
   portalAction.reset().play();
-  portalSound.play();
 
   shakeTime = 0.7;
   shakeIntensity = innerWidth < 768 ? 0.05 : 0.12;
-
   animateBlur(0, 6, 2000);
 };
 
@@ -271,10 +299,8 @@ window.enterPortal = function () {
 function tryRedirect() {
   if (animationFinished && soundFinished) {
     animateBlur(6, 18, 300);
-
     shakeTime = 0.4;
     shakeIntensity = innerWidth < 768 ? 0.08 : 0.18;
-
     flash.classList.add("active");
     setTimeout(() => (location.href = "/portal.html"), 350);
   }
@@ -287,7 +313,7 @@ window.addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
-  composer.setSize(innerWidth, innerHeight);
+  composer?.setSize(innerWidth, innerHeight);
   setGameCamera();
 });
 
@@ -298,19 +324,19 @@ function animate() {
   requestAnimationFrame(animate);
 
   const d = clock.getDelta();
-  if (mixer) mixer.update(d);
+  if (mixer && portalAction?.isRunning()) mixer.update(d);
 
   if (shakeTime > 0) {
     shakeTime -= d;
-    cameraRig.position.x =
-      basePos.x + (Math.random() - 0.5) * shakeIntensity;
-    cameraRig.position.y =
-      basePos.y + (Math.random() - 0.5) * shakeIntensity;
+    cameraRig.position.x = basePos.x + (Math.random() - 0.5) * shakeIntensity;
+    cameraRig.position.y = basePos.y + (Math.random() - 0.5) * shakeIntensity;
   } else {
     cameraRig.position.lerp(basePos, 0.15);
   }
 
   controls.update();
-  composer.render();
+
+  if (composer) composer.render();
+  else renderer.render(scene, camera);
 }
 animate();
